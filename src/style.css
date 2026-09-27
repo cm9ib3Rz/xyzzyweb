@@ -1,0 +1,601 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f1ea;
+  --ink: #1c1a15;
+  --accent: #6b3fa0;
+  --border: #cfc6b0;
+  --font: 'Courier New', ui-monospace, Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+}
+
+#app {
+  max-width: 1100px;
+  margin: 0 auto;
+  height: 100vh;
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.picker {
+  padding: 32px 0;
+}
+
+.picker h1 {
+  font-size: 1.4rem;
+  margin-bottom: 4px;
+}
+
+.picker p {
+  color: #555;
+  margin-top: 0;
+}
+
+.picker-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.picker-list button {
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  font-family: var(--font);
+  font-size: 1rem;
+  background: white;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.picker-list button:hover,
+.picker-list button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.picker-list .subtitle {
+  display: block;
+  font-size: 0.8rem;
+  color: #666;
+  margin-top: 2px;
+}
+
+.access-form {
+  margin-top: 24px;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.access-form label {
+  font-size: 0.9rem;
+}
+
+.access-form input {
+  font-family: var(--font);
+  font-size: 1rem;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  color: var(--ink);
+}
+
+.access-form input:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.access-form button {
+  align-self: flex-start;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  padding: 10px 18px;
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+.access-form-error {
+  color: #b02a2a !important;
+  font-size: 0.85rem;
+}
+
+.picker-change-code {
+  margin-top: 16px;
+  background: none;
+  border: none;
+  color: #666;
+  font-family: var(--font);
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+.game-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.game-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.game-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.xyzzy-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.xyzzy-screen-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.status-bar[hidden] {
+  display: none;
+}
+
+.save-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.save-toolbar button,
+.save-panel button {
+  font-family: var(--font);
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.save-toolbar button {
+  width: 100%;
+  text-align: left;
+}
+
+.save-toolbar button:hover,
+.save-panel button:hover {
+  border-color: var(--accent);
+}
+
+.quit-button {
+  color: #8a2f2f;
+  border-color: #cfa8a8 !important;
+}
+
+.quit-button:hover {
+  border-color: #8a2f2f !important;
+}
+
+.game-sidebar > .save-toolbar:not(:first-child) {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.transcript-viewer {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  background: white;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+/* The map opens in its own popup window (see MapView.ts) rather than a
+   docked panel, so its root just needs to fill that window. */
+.map-popup-body {
+  margin: 0;
+  padding: 12px;
+  box-sizing: border-box;
+  height: 100vh;
+}
+
+.map-popup-root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.map-panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.map-panel-header h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.map-panel-header button {
+  font-family: var(--font);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+
+.map-hint {
+  font-size: 0.8rem;
+  color: #666;
+  margin: 0;
+}
+
+.map-svg {
+  width: 100%;
+  flex: 1;
+  min-height: 260px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  touch-action: none;
+  user-select: none;
+}
+
+.map-background {
+  fill: white;
+  cursor: grab;
+}
+
+.map-node-group {
+  cursor: move;
+}
+
+.map-node {
+  fill: var(--accent);
+  stroke: white;
+  stroke-width: 1.5;
+}
+
+.map-node--selected {
+  fill: #b02a2a;
+  stroke: #b02a2a;
+}
+
+.map-node-label {
+  font-family: var(--font);
+  font-size: 11px;
+  fill: var(--ink);
+  pointer-events: none;
+}
+
+.map-edge {
+  stroke: var(--border);
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.map-edge:hover {
+  stroke: var(--accent);
+}
+
+.map-edge--selected {
+  stroke: #b02a2a;
+  stroke-width: 3;
+}
+
+.map-arrowhead {
+  fill: var(--border);
+}
+
+.map-edge-label {
+  font-family: var(--font);
+  font-size: 10px;
+  fill: var(--ink);
+  text-anchor: middle;
+  cursor: pointer;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.map-edge-label:hover {
+  fill: var(--accent);
+}
+
+.map-edge-label--selected {
+  fill: #b02a2a;
+  font-weight: bold;
+}
+
+.map-list {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  flex-shrink: 0;
+  max-height: 110px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  background: white;
+  margin: 0;
+}
+
+.map-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.map-actions button {
+  font-family: var(--font);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+
+.map-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.save-panel[hidden] {
+  display: none;
+}
+
+.save-panel {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.save-panel-new {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.save-panel-new button {
+  width: 100%;
+}
+
+.save-panel-name-input {
+  font-family: var(--font);
+  font-size: 0.9rem;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  color: var(--ink);
+  width: 100%;
+}
+
+.save-panel-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.save-panel-label {
+  font-weight: bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-panel-timestamp {
+  color: #666;
+  font-size: 0.75rem;
+}
+
+.save-panel-row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.save-panel-row-actions button {
+  flex: 1;
+}
+
+.save-panel-empty {
+  color: #666;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .save-toolbar button,
+  .save-panel button,
+  .save-panel,
+  .save-panel-name-input,
+  .transcript-viewer,
+  .map-panel-header button,
+  .map-actions button,
+  .map-svg,
+  .map-list {
+    background: #232019;
+    color: var(--ink);
+  }
+
+  .save-panel-timestamp {
+    color: #999;
+  }
+
+  .map-background {
+    fill: #232019;
+  }
+}
+
+@media (max-width: 700px) {
+  .game-layout {
+    flex-direction: column;
+  }
+
+  .game-sidebar {
+    width: 100%;
+  }
+
+  .save-toolbar {
+    flex-direction: row;
+  }
+
+  .save-toolbar button {
+    width: auto;
+    flex: 1;
+  }
+}
+
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  background: var(--accent);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px 4px 0 0;
+  font-size: 0.9rem;
+}
+
+.upper-window {
+  margin: 0;
+  background: #2b2620;
+  color: #e8e2d0;
+  padding: 8px 12px;
+  white-space: pre;
+  overflow: hidden;
+  border-radius: 0 0 4px 4px;
+}
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.4;
+  padding: 12px;
+  background: white;
+  border: 1px solid var(--border);
+}
+
+.style-bold {
+  font-weight: bold;
+}
+
+.style-italic {
+  font-style: italic;
+}
+
+.style-reverse {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.submitted-text {
+  white-space: pre-wrap;
+}
+
+/* Infocom games print their own "> " prompt before reading, so the live
+   input just continues inline right after it — no prompt is added here. */
+.command-input {
+  width: 40ch;
+  max-width: 100%;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: inherit;
+  background: transparent;
+  color: var(--ink);
+}
+
+.command-input:disabled {
+  color: #999;
+}
+
+/* An invisible single-character input used for read_char ("press any key")
+   waits — inline with no box, so it doesn't disturb the surrounding text
+   but still holds real keyboard focus at the cursor position. */
+.char-input {
+  width: 1px;
+  height: 1em;
+  padding: 0;
+  margin: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  opacity: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #1b1a17;
+    --ink: #e8e2d0;
+    --border: #45403a;
+  }
+
+  .transcript,
+  .picker-list button,
+  .access-form input {
+    background: #232019;
+  }
+
+  .style-reverse {
+    background: var(--ink);
+    color: var(--bg);
+  }
+}

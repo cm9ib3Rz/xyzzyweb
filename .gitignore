@@ -1,0 +1,22 @@
+/tmp
+/out-tsc
+/dist
+.DS_Store
+
+/node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/.pnp
+.pnp.js
+
+.vscode/*
+
+# Original plaintext story files -- never committed. Obfuscated copies for
+# the actual deployment are generated into public/data/ by
+# scripts/obfuscate-data.mjs.
+/data-source
+
+# Access codes, remote URLs, and deployment settings -- reference notes only,
+# never committed (nothing sensitive should be published to the public repo).
+/DEPLOYMENT-NOTES.md

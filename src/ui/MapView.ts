@@ -1,0 +1,534 @@
+import { downloadText } from './download'
+import { placeNewNode, type Point } from './graphLayout'
+import type { MapEdge, MapTracker } from './MapTracker'
+
+function button(doc: Document, label: string, onClick: () => void, className = ''): HTMLButtonElement {
+  const b = doc.createElement('button')
+  b.type = 'button'
+  b.textContent = label
+  if (className) b.className = className
+  b.addEventListener('click', onClick)
+  return b
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg'
+const WIDTH = 760
+const HEIGHT = 480
+const MIN_SCALE = 0.25
+const MAX_SCALE = 4
+const NODE_RADIUS = 7
+const ARROW_LEN = 8
+
+/** Labels are "N: Name" or "Obj#N: Name" (see Instructions.currentLocationLabel) — show just the name. */
+function roomName(label: string): string {
+  const idx = label.indexOf(': ')
+  return idx >= 0 ? label.slice(idx + 2) : label
+}
+
+function edgeKey(e: MapEdge): string {
+  return `${e.from} ||| ${e.to} ||| ${e.command}`
+}
+
+interface EdgeGeometry {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  midX: number
+  midY: number
+  angleDeg: number
+}
+
+/**
+ * Line endpoints trimmed back to the edge of each room's circle (so the
+ * arrowhead lands right at the node instead of under it), plus a midpoint
+ * and an angle for the label — flipped 180 degrees when it would render
+ * upside down, so command text always reads left-to-right.
+ */
+function edgeGeometry(a: Point, b: Point): EdgeGeometry {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const dist = Math.sqrt(dx * dx + dy * dy) || 0.01
+  const ux = dx / dist
+  const uy = dy / dist
+  let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI)
+  if (angleDeg > 90) angleDeg -= 180
+  if (angleDeg < -90) angleDeg += 180
+  return {
+    x1: a.x + ux * NODE_RADIUS,
+    y1: a.y + uy * NODE_RADIUS,
+    x2: b.x - ux * (NODE_RADIUS + ARROW_LEN),
+    y2: b.y - uy * (NODE_RADIUS + ARROW_LEN),
+    midX: (a.x + b.x) / 2,
+    midY: (a.y + b.y) / 2,
+    angleDeg,
+  }
+}
+
+const EDGE_SPACING = 16
+
+/** Groups edges by their *unordered* pair of rooms, so e.g. "se" A->B and "nw" B->A land in the same group. */
+export function groupEdgesByPair(edges: readonly MapEdge[]): Map<string, MapEdge[]> {
+  const groups = new Map<string, MapEdge[]>()
+  for (const e of edges) {
+    const key = [e.from, e.to].slice().sort().join(' ||| ')
+    const list = groups.get(key)
+    if (list) list.push(e)
+    else groups.set(key, [e])
+  }
+  return groups
+}
+
+/**
+ * Endpoints for one edge, shifted perpendicular to the line when it shares
+ * its pair of rooms with other edges (e.g. a two-way "se"/"nw" connection),
+ * so reciprocal/parallel edges fan out side by side instead of drawing
+ * exactly on top of each other. The perpendicular direction is derived from
+ * a *canonical* (sorted) room order rather than each edge's own from/to, so
+ * opposite-direction edges between the same two rooms land on opposite
+ * sides instead of cancelling out.
+ */
+export function shiftedEndpoints(edge: MapEdge, positions: ReadonlyMap<string, Point>, groups: ReadonlyMap<string, MapEdge[]>): [Point, Point] | null {
+  const a = positions.get(edge.from)
+  const b = positions.get(edge.to)
+  if (!a || !b) return null
+
+  const key = [edge.from, edge.to].slice().sort().join(' ||| ')
+  const group = groups.get(key) ?? [edge]
+  if (group.length <= 1) return [a, b]
+
+  const sortedPair = [edge.from, edge.to].slice().sort()
+  const canonA = positions.get(sortedPair[0]!)
+  const canonB = positions.get(sortedPair[1]!)
+  if (!canonA || !canonB) return [a, b]
+
+  const cdx = canonB.x - canonA.x
+  const cdy = canonB.y - canonA.y
+  const cdist = Math.sqrt(cdx * cdx + cdy * cdy) || 0.01
+  const px = -cdy / cdist
+  const py = cdx / cdist
+
+  const idx = group.indexOf(edge)
+  const offset = (idx - (group.length - 1) / 2) * EDGE_SPACING
+
+  return [
+    { x: a.x + px * offset, y: a.y + py * offset },
+    { x: b.x + px * offset, y: b.y + py * offset },
+  ]
+}
+
+type Selection = { type: 'node'; id: string } | { type: 'edge'; edge: MapEdge } | null
+
+/**
+ * Builds the full interactive map UI (svg + list + actions) inside
+ * `container`. Takes `doc`/`win` explicitly (rather than using the global
+ * `document`/`window`) so the exact same code can render into a separate
+ * popup window — see mountMapControls below — sharing the one `mapTracker`
+ * instance across the window boundary rather than needing to duplicate or
+ * sync state.
+ */
+function buildMapUI(doc: Document, win: Window, container: HTMLElement, mapTracker: MapTracker, gameTitle: string, onClose: () => void): void {
+  const header = doc.createElement('div')
+  header.className = 'map-panel-header'
+  const title = doc.createElement('h2')
+  title.textContent = `Map — ${gameTitle}`
+  const closeBtn = button(doc, 'Close', onClose)
+  header.append(title, closeBtn)
+
+  const hint = doc.createElement('p')
+  hint.className = 'map-hint'
+  hint.textContent = 'Scroll to zoom · drag background to pan · drag a room to move it · click a room/line then Delete Selected.'
+
+  const svg = doc.createElementNS(SVG_NS, 'svg')
+  svg.setAttribute('viewBox', `0 0 ${WIDTH} ${HEIGHT}`)
+  svg.classList.add('map-svg')
+
+  const defs = doc.createElementNS(SVG_NS, 'defs')
+  const marker = doc.createElementNS(SVG_NS, 'marker')
+  marker.setAttribute('id', 'map-arrowhead')
+  marker.setAttribute('viewBox', '0 0 10 10')
+  marker.setAttribute('refX', '8')
+  marker.setAttribute('refY', '5')
+  marker.setAttribute('markerWidth', '7')
+  marker.setAttribute('markerHeight', '7')
+  marker.setAttribute('orient', 'auto-start-reverse')
+  const arrowPath = doc.createElementNS(SVG_NS, 'path')
+  arrowPath.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z')
+  arrowPath.setAttribute('class', 'map-arrowhead')
+  marker.appendChild(arrowPath)
+  defs.appendChild(marker)
+  svg.appendChild(defs)
+
+  const background = doc.createElementNS(SVG_NS, 'rect')
+  background.setAttribute('class', 'map-background')
+  background.setAttribute('x', '0')
+  background.setAttribute('y', '0')
+  background.setAttribute('width', String(WIDTH))
+  background.setAttribute('height', String(HEIGHT))
+
+  const viewport = doc.createElementNS(SVG_NS, 'g')
+  viewport.setAttribute('class', 'map-viewport')
+  const edgesGroup = doc.createElementNS(SVG_NS, 'g')
+  const nodesGroup = doc.createElementNS(SVG_NS, 'g')
+  viewport.append(edgesGroup, nodesGroup)
+  svg.append(background, viewport)
+
+  const list = doc.createElement('pre')
+  list.className = 'map-list'
+
+  const actions = doc.createElement('div')
+  actions.className = 'map-actions'
+  const deleteBtn = button(doc, 'Delete Selected', () => deleteSelected())
+  deleteBtn.disabled = true
+  const resetViewBtn = button(doc, 'Reset View', () => resetView())
+  const downloadBtn = button(doc, 'Download Map (text)', () => {
+    downloadText(`${gameTitle.replace(/[^a-z0-9]+/gi, '-')}-map.txt`, mapTracker.toText())
+  })
+  const clearBtn = button(doc, 'Clear Map', () => {
+    mapTracker.clear()
+    resetView()
+    renderMap()
+  })
+  actions.append(deleteBtn, resetViewBtn, downloadBtn, clearBtn)
+
+  container.append(header, hint, svg, list, actions)
+
+  // ------------------------------------------------------------------ //
+  // State                                                                //
+  // ------------------------------------------------------------------ //
+
+  const positions = new Map<string, Point>()
+  for (const [id, p] of Object.entries(mapTracker.getPositions())) positions.set(id, p)
+
+  const nodeEls = new Map<string, { g: SVGGElement; circle: SVGCircleElement }>()
+  const edgeEls = new Map<string, { line: SVGLineElement; label: SVGTextElement; edge: MapEdge }>()
+
+  let viewScale = 1
+  let viewX = 0
+  let viewY = 0
+  let selected: Selection = null
+
+  let dragNodeId: string | null = null
+  let panStart: { viewBoxPoint: Point; origX: number; origY: number } | null = null
+  let panMoved = false
+
+  // ------------------------------------------------------------------ //
+  // Coordinate helpers                                                   //
+  // ------------------------------------------------------------------ //
+
+  /** Mouse position in the fixed 0..WIDTH,0..HEIGHT viewBox space (independent of pan/zoom). */
+  function viewBoxPointFromEvent(evt: MouseEvent): Point {
+    const pt = svg.createSVGPoint()
+    pt.x = evt.clientX
+    pt.y = evt.clientY
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return { x: 0, y: 0 }
+    const p = pt.matrixTransform(ctm.inverse())
+    return { x: p.x, y: p.y }
+  }
+
+  /** Mouse position in world/room-graph space (accounts for current pan/zoom). */
+  function worldPointFromEvent(evt: MouseEvent): Point {
+    const pt = svg.createSVGPoint()
+    pt.x = evt.clientX
+    pt.y = evt.clientY
+    const ctm = viewport.getScreenCTM()
+    if (!ctm) return { x: 0, y: 0 }
+    const p = pt.matrixTransform(ctm.inverse())
+    return { x: p.x, y: p.y }
+  }
+
+  function applyViewportTransform(): void {
+    viewport.setAttribute('transform', `translate(${viewX} ${viewY}) scale(${viewScale})`)
+  }
+
+  function resetView(): void {
+    viewScale = 1
+    viewX = 0
+    viewY = 0
+    applyViewportTransform()
+  }
+
+  // ------------------------------------------------------------------ //
+  // Zoom / pan                                                           //
+  // ------------------------------------------------------------------ //
+
+  svg.addEventListener(
+    'wheel',
+    (evt) => {
+      evt.preventDefault()
+      const vbPoint = viewBoxPointFromEvent(evt)
+      const worldPoint = { x: (vbPoint.x - viewX) / viewScale, y: (vbPoint.y - viewY) / viewScale }
+      const factor = evt.deltaY < 0 ? 1.15 : 1 / 1.15
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewScale * factor))
+      viewX = vbPoint.x - newScale * worldPoint.x
+      viewY = vbPoint.y - newScale * worldPoint.y
+      viewScale = newScale
+      applyViewportTransform()
+    },
+    { passive: false },
+  )
+
+  background.addEventListener('mousedown', (evt) => {
+    panStart = { viewBoxPoint: viewBoxPointFromEvent(evt), origX: viewX, origY: viewY }
+    panMoved = false
+  })
+
+  win.addEventListener('mousemove', (evt) => {
+    if (dragNodeId) {
+      const p = worldPointFromEvent(evt)
+      positions.set(dragNodeId, p)
+      const els = nodeEls.get(dragNodeId)
+      if (els) {
+        els.circle.setAttribute('cx', String(p.x))
+        els.circle.setAttribute('cy', String(p.y))
+        const label = els.g.querySelector('text')
+        if (label) {
+          label.setAttribute('x', String(p.x + 10))
+          label.setAttribute('y', String(p.y + 4))
+        }
+      }
+      const groups = groupEdgesByPair([...edgeEls.values()].map((v) => v.edge))
+      for (const { line, label, edge } of edgeEls.values()) {
+        if (edge.from !== dragNodeId && edge.to !== dragNodeId) continue
+        const shifted = shiftedEndpoints(edge, positions, groups)
+        if (!shifted) continue
+        const geo = edgeGeometry(shifted[0], shifted[1])
+        line.setAttribute('x1', String(geo.x1))
+        line.setAttribute('y1', String(geo.y1))
+        line.setAttribute('x2', String(geo.x2))
+        line.setAttribute('y2', String(geo.y2))
+        label.setAttribute('x', String(geo.midX))
+        label.setAttribute('y', String(geo.midY))
+        label.setAttribute('transform', `rotate(${geo.angleDeg} ${geo.midX} ${geo.midY})`)
+      }
+      return
+    }
+    if (panStart) {
+      const cur = viewBoxPointFromEvent(evt)
+      if (Math.abs(cur.x - panStart.viewBoxPoint.x) > 2 || Math.abs(cur.y - panStart.viewBoxPoint.y) > 2) panMoved = true
+      viewX = panStart.origX + (cur.x - panStart.viewBoxPoint.x)
+      viewY = panStart.origY + (cur.y - panStart.viewBoxPoint.y)
+      applyViewportTransform()
+    }
+  })
+
+  win.addEventListener('mouseup', () => {
+    if (dragNodeId) {
+      const p = positions.get(dragNodeId)
+      if (p) mapTracker.setPosition(dragNodeId, p)
+      dragNodeId = null
+    }
+    if (panStart && !panMoved) selectNone()
+    panStart = null
+  })
+
+  // ------------------------------------------------------------------ //
+  // Selection / deletion                                                 //
+  // ------------------------------------------------------------------ //
+
+  function selectNode(id: string): void {
+    selected = { type: 'node', id }
+    updateSelectionUI()
+  }
+
+  function selectEdge(edge: MapEdge): void {
+    selected = { type: 'edge', edge }
+    updateSelectionUI()
+  }
+
+  function selectNone(): void {
+    selected = null
+    updateSelectionUI()
+  }
+
+  function updateSelectionUI(): void {
+    for (const [id, els] of nodeEls) {
+      els.circle.classList.toggle('map-node--selected', selected?.type === 'node' && selected.id === id)
+    }
+    for (const [key, els] of edgeEls) {
+      const isSelected = selected?.type === 'edge' && edgeKey(selected.edge) === key
+      els.line.classList.toggle('map-edge--selected', isSelected)
+      els.label.classList.toggle('map-edge-label--selected', isSelected)
+    }
+    deleteBtn.disabled = selected === null
+  }
+
+  function deleteSelected(): void {
+    if (!selected) return
+    if (selected.type === 'node') mapTracker.deleteNode(selected.id)
+    else mapTracker.deleteEdge(selected.edge)
+    selected = null
+  }
+
+  doc.addEventListener('keydown', (evt) => {
+    if (evt.key !== 'Delete' && evt.key !== 'Backspace') return
+    const active = doc.activeElement
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return
+    if (selected) {
+      evt.preventDefault()
+      deleteSelected()
+    }
+  })
+
+  // ------------------------------------------------------------------ //
+  // Rendering                                                             //
+  // ------------------------------------------------------------------ //
+
+  function renderMap(): void {
+    const nodes = mapTracker.getNodes()
+    const edges = mapTracker.getEdges()
+
+    for (const n of nodes) {
+      if (!positions.has(n)) {
+        const p = placeNewNode(
+          n,
+          edges.map((e): [string, string] => [e.from, e.to]),
+          positions,
+          WIDTH,
+          HEIGHT,
+        )
+        positions.set(n, p)
+        mapTracker.setPosition(n, p)
+      }
+    }
+    for (const id of [...positions.keys()]) {
+      if (!nodes.includes(id)) positions.delete(id)
+    }
+
+    edgesGroup.innerHTML = ''
+    nodesGroup.innerHTML = ''
+    nodeEls.clear()
+    edgeEls.clear()
+
+    if (nodes.length === 0) {
+      list.textContent = 'No rooms explored yet — move around to build the map.'
+      updateSelectionUI()
+      return
+    }
+
+    const groups = groupEdgesByPair(edges)
+    for (const e of edges) {
+      const shifted = shiftedEndpoints(e, positions, groups)
+      if (!shifted) continue
+      const geo = edgeGeometry(shifted[0], shifted[1])
+
+      const line = doc.createElementNS(SVG_NS, 'line')
+      line.setAttribute('x1', String(geo.x1))
+      line.setAttribute('y1', String(geo.y1))
+      line.setAttribute('x2', String(geo.x2))
+      line.setAttribute('y2', String(geo.y2))
+      line.setAttribute('class', 'map-edge')
+      line.setAttribute('marker-end', 'url(#map-arrowhead)')
+      const edgeTitle = doc.createElementNS(SVG_NS, 'title')
+      edgeTitle.textContent = e.command
+      line.appendChild(edgeTitle)
+      const onSelectEdge = (evt: Event): void => {
+        evt.stopPropagation()
+        selectEdge(e)
+      }
+      line.addEventListener('click', onSelectEdge)
+      edgesGroup.appendChild(line)
+
+      const label = doc.createElementNS(SVG_NS, 'text')
+      label.setAttribute('x', String(geo.midX))
+      label.setAttribute('y', String(geo.midY))
+      label.setAttribute('transform', `rotate(${geo.angleDeg} ${geo.midX} ${geo.midY})`)
+      label.setAttribute('class', 'map-edge-label')
+      label.textContent = e.command
+      label.addEventListener('click', onSelectEdge)
+      edgesGroup.appendChild(label)
+
+      edgeEls.set(edgeKey(e), { line, label, edge: e })
+    }
+
+    for (const n of nodes) {
+      const p = positions.get(n)
+      if (!p) continue
+      const g = doc.createElementNS(SVG_NS, 'g')
+      g.setAttribute('class', 'map-node-group')
+      const circle = doc.createElementNS(SVG_NS, 'circle')
+      circle.setAttribute('cx', String(p.x))
+      circle.setAttribute('cy', String(p.y))
+      circle.setAttribute('r', '7')
+      circle.setAttribute('class', 'map-node')
+      const label = doc.createElementNS(SVG_NS, 'text')
+      label.setAttribute('x', String(p.x + 10))
+      label.setAttribute('y', String(p.y + 4))
+      label.setAttribute('class', 'map-node-label')
+      label.textContent = roomName(n)
+      const nodeTitle = doc.createElementNS(SVG_NS, 'title')
+      nodeTitle.textContent = n
+      g.append(circle, label, nodeTitle)
+      g.addEventListener('mousedown', (evt) => {
+        evt.stopPropagation()
+        dragNodeId = n
+        selectNode(n)
+      })
+      g.addEventListener('click', (evt) => evt.stopPropagation())
+      nodesGroup.appendChild(g)
+      nodeEls.set(n, { g, circle })
+    }
+
+    updateSelectionUI()
+    list.textContent = edges.map((e) => `${roomName(e.from)} --[${e.command}]--> ${roomName(e.to)}`).join('\n')
+  }
+
+  mapTracker.onChange(() => renderMap())
+  renderMap()
+}
+
+/**
+ * Mounts a "Map" button into `sidebarBar` that opens the interactive map in
+ * a separate, native-resizable browser window (rather than a docked panel
+ * competing for space with the transcript, or a modal blocking it) —
+ * closing/reopening just refocuses the same window while it's still open.
+ * Both windows share the one `mapTracker` instance directly (same origin,
+ * same JS realm graph), so edits made in the popup — dragging a room,
+ * deleting a connection — are immediately visible if the map is reopened,
+ * with no extra sync code needed. The web equivalent of the Python
+ * interpreter's "#map"/"#remap" meta-commands.
+ */
+export function mountMapControls(sidebarBar: HTMLElement, mapTracker: MapTracker, gameTitle: string): void {
+  const bar = document.createElement('div')
+  bar.className = 'save-toolbar'
+  const toggleBtn = button(document, 'Map', () => openMapWindow())
+  bar.append(toggleBtn)
+  sidebarBar.append(bar)
+
+  let popup: Window | null = null
+
+  function openMapWindow(): void {
+    if (popup && !popup.closed) {
+      popup.focus()
+      return
+    }
+
+    const win = window.open('', 'xyzzy-map', 'width=900,height=700,resizable=yes')
+    if (!win) {
+      const original = toggleBtn.textContent
+      toggleBtn.textContent = 'Popup blocked — allow popups for this site'
+      setTimeout(() => {
+        toggleBtn.textContent = original
+      }, 3000)
+      return
+    }
+    popup = win
+
+    win.document.title = `Map — ${gameTitle}`
+    for (const styleEl of document.querySelectorAll('link[rel="stylesheet"], style')) {
+      win.document.head.appendChild(styleEl.cloneNode(true))
+    }
+    win.document.body.className = 'map-popup-body'
+
+    const container = win.document.createElement('div')
+    container.className = 'map-popup-root'
+    win.document.body.appendChild(container)
+
+    buildMapUI(win.document, win, container, mapTracker, gameTitle, () => win.close())
+  }
+
+  window.addEventListener('beforeunload', () => {
+    if (popup && !popup.closed) popup.close()
+  })
+}
