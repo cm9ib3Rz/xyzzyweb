@@ -44,7 +44,7 @@ If you run your own copy, you are responsible for the story files you put in it.
 
 ## Run it yourself
 
-You need [Node.js](https://nodejs.org) 20 or newer.
+You need [Node.js](https://nodejs.org) 24 or newer.
 
 ```bash
 git clone https://github.com/cm9ib3Rz/xyzzyweb.git
